@@ -1,9 +1,9 @@
 """
 https://wiki.axiodl.com/w/Scriptable_Layers_(File_Format)
 """
-
+from __future__ import annotations
 import io
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import construct
 from construct import Container
@@ -14,8 +14,12 @@ from construct.core import (
 
 from retro_data_structures import game_check
 from retro_data_structures.common_types import FourCC
+from retro_data_structures.formats.wrapper import FormatWrapper
 from retro_data_structures.game_check import Game, current_game_at_least_else
 from retro_data_structures.property_template import GetPropertyConstruct
+
+if TYPE_CHECKING:
+    from retro_data_structures.formats.script_layer import ScriptLayerHelper
 
 
 def Connection(subcon):
@@ -75,13 +79,8 @@ ScriptInstance = Struct(
 )
 
 
-class ScriptInstanceHelper:
-    _raw: Container
-    target_game: Game
-
-    def __init__(self, raw: Container, target_game: Game):
-        self._raw = raw
-        self.target_game = target_game
+class ScriptInstanceHelper(FormatWrapper):
+    _properties: Container = None
 
     def __str__(self):
         return "<ScriptInstance {} 0x{:08x}>".format(self.type_name, self.id)
@@ -90,18 +89,24 @@ class ScriptInstanceHelper:
         return isinstance(other, ScriptInstanceHelper) and self._raw == other._raw
 
     @classmethod
-    def new_instance(cls, target_game: Game, instance_type):
+    def new_instance(cls, target_game: Game, instance_type: str, layer: ScriptLayerHelper):
         prop_construct = GetPropertyConstruct(target_game, instance_type, True)
         # TODO: make this less ugly lmao
         raw = ScriptInstance.parse(ScriptInstance.build({
             "type": instance_type,
             "instance": {
-                "id": {"raw": 0},
+                "id": {
+                    "parts": {
+                        "layer": layer._index,
+                        "area": layer._parent_area._index,
+                        "instance": layer._parent_area.next_instance_id
+                    }
+                },
                 "connections": [],
                 "base_property": prop_construct.build({}, target_game=target_game)
             }
         }, target_game=target_game), target_game=target_game)
-        return cls(raw, target_game)
+        return cls(raw, target_game, layer.asset_provider)
 
     @property
     def type(self) -> str:
@@ -117,35 +122,48 @@ class ScriptInstanceHelper:
     @property
     def id(self) -> int:
         return self._raw.instance.id.raw
+    
+    @property
+    def id_struct(self) -> Container:
+        return self._raw.instance.id.parts
 
     @property
     def name(self) -> str:
-        return self.get_property(("EditorProperties", "Name"))
+        return self.properties.EditorProperties.Name
 
     @property
     def _property_construct(self):
         return GetPropertyConstruct(self.target_game, self.type)
 
-    def get_properties(self):
+    @property
+    def properties(self):
+        if self._properties is None:
+            self._properties = self._get_raw_properties()
+        return self._properties
+    
+    @properties.setter
+    def properties(self, value):
+        self._properties = value
+
+    def _get_raw_properties(self):
         return self._property_construct.parse(
             self._raw.instance.base_property,
             target_game=self.target_game,
         )
 
-    def set_properties(self, data: Container):
+    def _set_raw_properties(self):
         self._raw.instance.base_property = self._property_construct.build(
-            data, target_game=self.target_game,
+            self.properties, target_game=self.target_game,
         )
-
-    def get_property(self, chain: Iterator[str]):
-        prop = self.get_properties()
-        for name in chain:
-            prop = prop[name]
-        return prop
+        self.properties = None
 
     @property
     def connections(self):
         return self._raw.instance.connections
+    
+    @connections.setter
+    def connections(self, value):
+        self._raw.instance.connections = value
 
     def add_connection(self, state, message, target: "ScriptInstanceHelper"):
         self.connections.append(Container(
@@ -153,3 +171,8 @@ class ScriptInstanceHelper:
             message=message,
             target=target.id
         ))
+    
+    def remove_connections(self, target: Union[int, "ScriptInstanceHelper"]):
+        if isinstance(target, ScriptInstanceHelper):
+            target = target.id
+        self.connections = [c for c in self.connections if c.target.id != target]

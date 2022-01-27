@@ -102,3 +102,6 @@ class AssetProvider:
     def all_resource_headers(self):
         for resource, _ in self._resource_by_asset_id.values():
             yield resource
+
+    def save_asset(self, asset_id: AssetId, data: bytes):
+        raise NotImplementedError()

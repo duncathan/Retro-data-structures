@@ -2,12 +2,14 @@
 https://wiki.axiodl.com/w/STRG_(File_Format)
 """
 
+from typing import Iterable
 from construct import (
     Array,
     Byte,
     Computed,
     Const,
     CString,
+    Construct,
     Enum,
     GreedyRange,
     If,
@@ -23,6 +25,7 @@ from construct import (
 
 from retro_data_structures.adapters.offset import OffsetAdapter
 from retro_data_structures.common_types import FourCC, String
+from retro_data_structures.formats.wrapper import FormatWrapper
 
 
 class CorruptionLanguageOffsetAdapter(OffsetAdapter):
@@ -157,6 +160,40 @@ CorruptionString = Struct(
     "size" / Pointer(this._start, Rebuild(Int32ub, this._size_end - this._size_start)),
 )
 
+class Strg(FormatWrapper):
+    @classmethod
+    def construct_class(cls) -> Construct:
+        return STRG
+    
+    def get_strings(self, language: str) -> Iterable[str]:
+        found = False
+
+        if self._raw.prime3:
+            for i, lang in enumerate(self._raw.language_ids):
+                if lang != language:
+                    continue
+                for offset in self._raw.corruption_language_table[i].offsets:
+                    yield self._raw.string_table[offset].string
+                found = True
+                break
+        
+        else:
+            for i, lang in enumerate(self._raw.language_table):
+                if lang.lang != language:
+                    continue
+                for string in self._raw.string_tables[i].strings:
+                    yield string.string
+                found = True
+                break
+        
+        if not found:
+            raise ValueError(f"No language {language} found in STRG")
+            
+    @property
+    def strings(self) -> list[str]:
+        return list(self.get_strings("ENGL"))
+        
+
 STRG = Struct(
     "magic" / Const(0x87654321, Int32ub),
     "version" / Enum(Int32ub, prime1=0, prime2=1, prime3=3),
@@ -182,3 +219,4 @@ STRG = Struct(
     / If(this.prime3, Pointer(this.corr_lang_table_start, CorruptionLanguage[this.language_count])),
     "junk" / GreedyRange(Byte),
 )
+

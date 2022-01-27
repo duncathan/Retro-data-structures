@@ -23,7 +23,7 @@ ALL_FORMATS = {
     "ANCS": ANCS,
     "CMDL": CMDL,
     "MLVL": MLVL,
-    "MREA": Mrea,
+    "MREA": MREA,
     "PAK": PAK,
     "ANIM": ANIM,
     "CINF": CINF,
@@ -36,6 +36,7 @@ ALL_FORMATS = {
     "DGRP": DGRP,
     "STRG": STRG,
 }
+
 
 
 def format_for(type_name: AssetType) -> Construct:

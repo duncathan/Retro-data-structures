@@ -44,6 +44,7 @@ from retro_data_structures.formats.lights import Lights
 from retro_data_structures.formats.script_layer import SCGN, SCLY, ScriptLayerHelper
 from retro_data_structures.formats.script_object import ScriptInstanceHelper
 from retro_data_structures.formats.visi import VISI
+from retro_data_structures.formats.wrapper import FormatWrapper
 from retro_data_structures.game_check import AssetIdCorrect, Game
 
 
@@ -166,11 +167,13 @@ class SectionCategoryAdapter(Adapter):
             "portal_area_section": AssetIdCorrect,
             "static_geometry_map_section": AssetIdCorrect,
             "unknown_section_1": Struct(
-                "magic" / If(game_check.is_prime3, Const("LLTE", FourCC)), "data" / Const(1, Int32ub)
+                "magic" / If(game_check.is_prime3, Const("LLTE", FourCC)), 
+                "data" / Const(1, Int32ub)
             ),
-            "unknown_section_2": Sequence(
-                Const(0, Int32ub),
-                PrefixedArray(Int32ub, Const(0xFF, Int8ub)),  # TODO: rebuild according to surface group count
+            "unknown_section_2": Struct(
+                "unk1" / PrefixedArray(Int32ub, Int32ub),
+                # TODO: rebuild according to surface group count
+                "unk2" / PrefixedArray(Int32ub, Enum(Int8ub, ON=0xFF, OFF=0x00)),
             ),
         }
 
@@ -411,25 +414,11 @@ MREA = AlignedStruct(32,
                      )
 
 
-class Mrea:
-    _raw: Container
-    target_game: Game
-
-    def __init__(self, raw: Container, target_game: Game):
-        self._raw = raw
-        self.target_game = target_game
-
-    @classmethod
-    def parse(cls, data: bytes, target_game: Game) -> "Mrea":
-        return cls(MREA.parse(data, target_game=target_game), target_game)
-
-    def build(self) -> bytes:
-        return MREA.build(self._raw, target_game=self.target_game)
-
+class Mrea(FormatWrapper):
     @property
     def script_layers(self) -> Iterator[ScriptLayerHelper]:
         for section in self._raw.sections.script_layers_section:
-            yield ScriptLayerHelper(section["data"], self.target_game)
+            yield ScriptLayerHelper(section["data"], self.target_game, self.asset_provider)
 
     def get_instance(self, instance_id: int) -> Optional[ScriptInstanceHelper]:
         for layer in self.script_layers:
